@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"net/http"
 	"path"
 	"strings"
 )
@@ -106,8 +108,15 @@ func (b *bridge) flowJobsByPath(ctx context.Context) (map[string]job, error) {
 		seen[j.ID] = true
 		p, ok := b.jobPaths[j.ID]
 		if !ok {
-			if p, err = b.au.jobPath(ctx, j.ID); err != nil {
-				return nil, err
+			p, err = b.au.jobPath(ctx, j.ID)
+			var he *httpError
+			switch {
+			case errors.As(err, &he) && he.Status == http.StatusNotFound:
+				// A rotated flow can leave a done job without a file: cache it as empty.
+				p = ""
+			case err != nil:
+				b.log.Warn("read aurral job path", "job", j.ID, "err", err)
+				continue
 			}
 			b.jobPaths[j.ID] = p
 		}

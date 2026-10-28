@@ -172,6 +172,7 @@ func TestCycleKeepsStarredFlowTracks(t *testing.T) {
 	au := &fakeAurral{
 		jobs: []map[string]any{
 			flowJob("j1", "A", "One"), flowJob("j2", "A", "Two"), flowJob("j3", "A", "Three"),
+			flowJob("j9", "A", "Rotated"), // no file: the files endpoint answers 404
 			{"id": "lib", "artistName": "A", "trackName": "Library", "playlistType": "library", "status": "done"},
 		},
 		paths: map[string]string{
@@ -219,6 +220,31 @@ func TestCycleKeepsStarredFlowTracks(t *testing.T) {
 	}
 	if au.fileCalls != fileCalls {
 		t.Errorf("job files fetched again: %d -> %d", fileCalls, au.fileCalls)
+	}
+}
+
+func TestCycleSkipsJobWithPathError(t *testing.T) {
+	nd := &fakeNavidrome{songs: []song{{ID: "s2", LibraryPath: "/aurral", Path: "_flows/f1/A/Album/02 - Two.flac", Artist: "A", Title: "Two"}}}
+	au := &fakeAurral{
+		jobs:  []map[string]any{flowJob("bad", "A", "Bad"), flowJob("j2", "A", "Two")},
+		paths: map[string]string{"j2": "/data/aurral/_flows/f1/A/Album/02 - Two.flac"},
+	}
+	b := newTestBridge(t, nd, au)
+	asrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/bad/files") {
+			http.Error(w, "boom", http.StatusInternalServerError)
+			return
+		}
+		au.handler(t).ServeHTTP(w, r)
+	}))
+	t.Cleanup(asrv.Close)
+	b.au.baseURL, b.au.http = asrv.URL, asrv.Client()
+
+	if st := b.cycle(t.Context()); st != (cycleStats{Starred: 1, Kept: 1}) {
+		t.Errorf("stats = %+v, want the good job kept", st)
+	}
+	if _, cached := b.jobPaths["bad"]; cached {
+		t.Errorf("a transient job path error is cached")
 	}
 }
 
