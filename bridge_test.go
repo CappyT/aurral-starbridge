@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 const (
@@ -273,6 +274,18 @@ func TestAurralSendsGroups(t *testing.T) {
 	b.au.groups = ""
 	if _, err := b.au.doneJobs(t.Context()); err == nil || !strings.Contains(err.Error(), "403") {
 		t.Errorf("err = %v, want 403 without the admin group", err)
+	}
+}
+
+func TestNextWait(t *testing.T) {
+	if got := nextWait(cycleStats{Failed: 1}, 15*time.Minute); got != retryWait {
+		t.Errorf("after a failure: %v, want %v", got, retryWait)
+	}
+	if got := nextWait(cycleStats{Kept: 2}, 15*time.Minute); got != 15*time.Minute {
+		t.Errorf("after a clean cycle: %v, want the interval", got)
+	}
+	if got := nextWait(cycleStats{Failed: 1}, 30*time.Second); got != 30*time.Second {
+		t.Errorf("interval shorter than the retry: %v, want the interval", got)
 	}
 }
 

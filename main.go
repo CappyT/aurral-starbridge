@@ -45,8 +45,6 @@ func main() {
 	}
 	log.Info("starting", "navidrome", cfg.NavidromeURL, "aurral", cfg.AurralURL, "user", cfg.AurralUser, "interval", cfg.Interval.String())
 
-	ticker := time.NewTicker(cfg.Interval)
-	defer ticker.Stop()
 	for ctx.Err() == nil {
 		st := b.cycle(ctx)
 		if ctx.Err() != nil {
@@ -55,8 +53,19 @@ func main() {
 		log.Info("cycle done", "starred", st.Starred, "kept", st.Kept, "already_kept", st.AlreadyKept, "unmatched", st.Unmatched, "failed", st.Failed)
 		select {
 		case <-ctx.Done():
-		case <-ticker.C:
+		case <-time.After(nextWait(st, cfg.Interval)):
 		}
 	}
 	log.Info("stopped")
+}
+
+// retryWait is the pause after a cycle with failures. The sidecar starts with Aurral,
+// so the first cycle can run before Aurral listens.
+const retryWait = time.Minute
+
+func nextWait(st cycleStats, interval time.Duration) time.Duration {
+	if st.Failed > 0 && retryWait < interval {
+		return retryWait
+	}
+	return interval
 }
